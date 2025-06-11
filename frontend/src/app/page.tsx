@@ -1,48 +1,87 @@
-// app/page.tsx
+// frontend/src/app/page.tsx
 'use client';
 
-import { useEffect, useState } from 'react';
-
-type Transaction = {
-  id: string;
-  userTransactionId: number;
-  userId: string;
-  description: string;
-  amount: number;
-  type: 'INCOME' | 'EXPENSE' | 'REIMBURSEMENT' | 'BILL';
-  category: string;
-  date: string;
-  isPaid: boolean;
-};
+import { useState, useEffect } from 'react';
+import { useFetchTransactions } from '@/hooks/transactions/useFetchTransactions';
+import { useCreateTransaction } from '@/hooks/transactions/useCreateTransaction';
+import { useDeleteTransaction } from '@/hooks/transactions/useDeleteTransaction'; // Importa o novo hook
+import TransactionCard from '@/components/TransactionCard';
 
 export default function HomePage() {
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [month, setMonth] = useState<string>('');
-  const [year, setYear] = useState<string>('');
-  const [loading, setLoading] = useState<boolean>(true);
+  const userId = 'user-id-fake';
 
-  const userId = 'user-id-fake'; // Substituir com ID real depois
+  const {
+    data: transactions,
+    loading,
+    error,
+    setMonth,
+    setYear,
+    refetch,
+  } = useFetchTransactions(userId);
 
-  const fetchTransactions = async () => {
-    try {
-      setLoading(true);
-      const params = new URLSearchParams();
-      if (month) params.append('month', month);
-      if (year) params.append('year', year);
+  const {
+    createTransaction,
+    loading: createLoading,
+    error: createError,
+    data: newTransactionData
+  } = useCreateTransaction();
 
-      const res = await fetch(`http://localhost:3000/transactions/user/${userId}?${params.toString()}`);
-      const data = await res.json();
-      setTransactions(data);
-    } catch (err) {
-      console.error('Erro ao buscar transações', err);
-    } finally {
-      setLoading(false);
+  const {
+    deleteTransaction,
+    loading: deleteLoading,
+    error: deleteError,
+    success: deleteSuccess,
+  } = useDeleteTransaction(); // Usa o hook de deleção
+
+  const [currentMonthInput, setCurrentMonthInput] = useState<string>('');
+  const [currentYearInput, setCurrentYearInput] = useState<string>('');
+
+  useEffect(() => {
+    // Apenas para fins de teste de re-fetch, se deleteSuccess for true, refetch as transações
+    if (deleteSuccess) {
+      refetch();
+    }
+  }, [deleteSuccess, refetch]);
+
+
+  const handleFilter = () => {
+    setMonth(Number(currentMonthInput) || undefined);
+    setYear(Number(currentYearInput) || undefined);
+  };
+
+  const handleCreateDummyTransaction = async () => {
+    const newTransaction = {
+      userId: userId,
+      description: `Dummy Transaction ${Math.random().toFixed(2)}`,
+      amount: parseFloat((100 + Math.random() * 1000).toFixed(2)),
+      type: (['INCOME', 'EXPENSE', 'REIMBURSEMENT', 'BILL'] as const)[Math.floor(Math.random() * 4)],
+      category: (['Alimentação', 'Transporte', 'Salário', 'Contas'] as const)[Math.floor(Math.random() * 4)],
+      date: new Date().toISOString(),
+      isPaid: Math.random() > 0.5,
+    };
+    const created = await createTransaction(newTransaction);
+    if (created) {
+      console.log('Transação dummy criada:', created);
+      refetch();
     }
   };
 
-  useEffect(() => {
-    fetchTransactions();
-  }, [month, year]);
+  const handleEdit = (transactionId: string) => {
+    console.log(`Editar transação com ID: ${transactionId}`);
+    // Futuramente, chamaremos o hook useUpdateTransaction aqui
+  };
+
+  const handleRemove = async (transactionId: string) => {
+    if (window.confirm('Tem certeza que deseja remover esta transação?')) {
+      const success = await deleteTransaction(transactionId);
+      if (success) {
+        console.log(`Transação ${transactionId} removida com sucesso!`);
+        // O useEffect acima já vai chamar refetch()
+      } else {
+        console.error(`Falha ao remover transação ${transactionId}: ${deleteError}`);
+      }
+    }
+  };
 
   return (
     <main className="max-w-4xl mx-auto p-4">
@@ -52,43 +91,53 @@ export default function HomePage() {
         <input
           type="number"
           placeholder="Mês (1-12)"
-          className="border p-2 rounded"
-          value={month}
-          onChange={(e) => setMonth(e.target.value)}
+          className="border p-2 rounded text-black"
+          value={currentMonthInput}
+          onChange={(e) => setCurrentMonthInput(e.target.value)}
         />
         <input
           type="number"
           placeholder="Ano"
-          className="border p-2 rounded"
-          value={year}
-          onChange={(e) => setYear(e.target.value)}
+          className="border p-2 rounded text-black"
+          value={currentYearInput}
+          onChange={(e) => setCurrentYearInput(e.target.value)}
         />
-        <button onClick={fetchTransactions} className="bg-blue-600 text-white px-4 py-2 rounded">
+        <button onClick={handleFilter} className="bg-blue-600 text-white px-4 py-2 rounded">
           Filtrar
         </button>
+        <button
+          onClick={handleCreateDummyTransaction}
+          className="bg-green-600 text-white px-4 py-2 rounded"
+          disabled={createLoading}
+        >
+          {createLoading ? 'Criando...' : 'Criar Transação (Teste)'}
+        </button>
       </div>
+
+      {error && <p className="text-red-500">Erro ao carregar transações: {error}</p>}
+      {createError && <p className="text-red-500">Erro ao criar transação: {createError}</p>}
+      {deleteError && <p className="text-red-500">Erro ao remover transação: {deleteError}</p>}
+      {newTransactionData && !createLoading && !createError && (
+        <p className="text-green-500">Transação criada com sucesso! ID: {newTransactionData.id}</p>
+      )}
+      {deleteLoading && <p className="text-blue-500">Removendo transação...</p>}
+
 
       {loading ? (
         <p>Carregando transações...</p>
       ) : transactions.length === 0 ? (
         <p>Nenhuma transação encontrada.</p>
       ) : (
-        <ul className="space-y-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {transactions.map((t) => (
-            <li key={t.id} className="border rounded p-4 flex justify-between items-center">
-              <div>
-                <p className="font-medium">{t.description}</p>
-                <p className="text-sm text-gray-500">{new Date(t.date).toLocaleDateString()}</p>
-              </div>
-              <div className="text-right">
-                <p className={`font-bold ${t.type === 'INCOME' ? 'text-green-600' : 'text-red-600'}`}>
-                  {t.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                </p>
-                <p className="text-xs">{t.category}</p>
-              </div>
-            </li>
+            <TransactionCard
+              key={t.id}
+              transaction={t}
+              onEdit={handleEdit}
+              onRemove={handleRemove}
+            />
           ))}
-        </ul>
+        </div>
       )}
     </main>
   );
