@@ -1,47 +1,46 @@
 // frontend/src/hooks/transactions/useCreateTransaction.ts
 import { useState } from 'react';
-import { Transaction } from './useFetchTransactions'; // Reutilize a tipagem de Transaction
+import { Transaction } from './useFetchTransactions';
+import axios, { AxiosError } from 'axios';
 
-// A tipagem para o DTO de criação, baseada no backend
-type CreateTransactionDto = {
+// DTO conforme o backend espera
+export type CreateTransactionDto = {
   userId: string;
   description: string;
   amount: number;
   type: 'INCOME' | 'EXPENSE' | 'REIMBURSEMENT' | 'BILL';
   category: string;
-  date: string; // backend recebe como string
+  date: string;
   isPaid: boolean;
 };
+
+// Recomendado: extrair o axios instance para reuso
+const API = axios.create({
+  baseURL: process.env.NEXT_PUBLIC_API_URL,
+});
 
 export const useCreateTransaction = () => {
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<Transaction | null>(null);
 
-  const createTransaction = async (transactionData: CreateTransactionDto) => {
+  const createTransaction = async (transactionData: CreateTransactionDto): Promise<Transaction | null> => {
     setLoading(true);
     setError(null);
     setData(null);
 
     try {
-      const response = await fetch('http://localhost:3000/transactions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(transactionData),
-      });
+      const response = await API.post<Transaction>('/transactions', transactionData);
+      setData(response.data);
+      return response.data;
+    } catch (err: unknown) {
+      const axiosError = err as AxiosError<{ message: string }>;
+      const message =
+        axiosError.response?.data?.message ||
+        axiosError.message ||
+        'Erro desconhecido ao criar transação';
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to create transaction');
-      }
-
-      const newTransaction: Transaction = await response.json();
-      setData(newTransaction);
-      return newTransaction;
-    } catch (err: any) {
-      setError(err.message);
+      setError(message);
       return null;
     } finally {
       setLoading(false);

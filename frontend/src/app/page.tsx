@@ -4,8 +4,10 @@
 import { useState, useEffect } from 'react';
 import { useFetchTransactions } from '@/hooks/transactions/useFetchTransactions';
 import { useCreateTransaction } from '@/hooks/transactions/useCreateTransaction';
-import { useDeleteTransaction } from '@/hooks/transactions/useDeleteTransaction'; // Importa o novo hook
+import { useDeleteTransaction } from '@/hooks/transactions/useDeleteTransaction';
 import TransactionCard from '@/components/TransactionCard';
+import TransactionForm from '@/components/TransactionForm'; // Importa o novo componente de formulário
+import { CreateTransactionDto } from '@/hooks/transactions/useCreateTransaction'; // Importa o DTO
 
 export default function HomePage() {
   const userId = 'user-id-fake';
@@ -23,7 +25,7 @@ export default function HomePage() {
     createTransaction,
     loading: createLoading,
     error: createError,
-    data: newTransactionData
+    data: newTransactionData // Este data será usado para acionar o refetch e feedback
   } = useCreateTransaction();
 
   const {
@@ -31,17 +33,20 @@ export default function HomePage() {
     loading: deleteLoading,
     error: deleteError,
     success: deleteSuccess,
-  } = useDeleteTransaction(); // Usa o hook de deleção
+  } = useDeleteTransaction();
 
   const [currentMonthInput, setCurrentMonthInput] = useState<string>('');
   const [currentYearInput, setCurrentYearInput] = useState<string>('');
 
+  // Estados para gerenciar o modo de edição
+  const [editingTransaction, setEditingTransaction] = useState<Omit<CreateTransactionDto, 'userId'> | null>(null);
+
+  // Efeito para re-fetch após deleção ou criação bem-sucedida
   useEffect(() => {
-    // Apenas para fins de teste de re-fetch, se deleteSuccess for true, refetch as transações
-    if (deleteSuccess) {
+    if (deleteSuccess || newTransactionData) {
       refetch();
     }
-  }, [deleteSuccess, refetch]);
+  }, [deleteSuccess, newTransactionData, refetch]);
 
 
   const handleFilter = () => {
@@ -49,80 +54,98 @@ export default function HomePage() {
     setYear(Number(currentYearInput) || undefined);
   };
 
-  const handleCreateDummyTransaction = async () => {
-    const newTransaction = {
-      userId: userId,
-      description: `Dummy Transaction ${Math.random().toFixed(2)}`,
-      amount: parseFloat((100 + Math.random() * 1000).toFixed(2)),
-      type: (['INCOME', 'EXPENSE', 'REIMBURSEMENT', 'BILL'] as const)[Math.floor(Math.random() * 4)],
-      category: (['Alimentação', 'Transporte', 'Salário', 'Contas'] as const)[Math.floor(Math.random() * 4)],
-      date: new Date().toISOString(),
-      isPaid: Math.random() > 0.5,
-    };
-    const created = await createTransaction(newTransaction);
-    if (created) {
-      console.log('Transação dummy criada:', created);
-      refetch();
-    }
-  };
-
   const handleEdit = (transactionId: string) => {
     console.log(`Editar transação com ID: ${transactionId}`);
-    // Futuramente, chamaremos o hook useUpdateTransaction aqui
+    // No futuro: Carregar os dados da transação para preencher o formulário para edição
+    const transactionToEdit = transactions.find(t => t.id === transactionId);
+    if (transactionToEdit) {
+      // Aqui, prepare os dados para o formulário de edição
+      // Certifique-se de que a data está no formato YYYY-MM-DD
+      setEditingTransaction({
+        description: transactionToEdit.description,
+        amount: transactionToEdit.amount,
+        type: transactionToEdit.type,
+        category: transactionToEdit.category,
+        date: new Date(transactionToEdit.date).toISOString().substring(0, 10),
+        isPaid: transactionToEdit.isPaid,
+      });
+      // Poderíamos ter um estado para controlar se o formulário está em modo de "adição" ou "edição"
+    }
   };
 
   const handleRemove = async (transactionId: string) => {
     if (window.confirm('Tem certeza que deseja remover esta transação?')) {
-      const success = await deleteTransaction(transactionId);
-      if (success) {
+      console.log(`[page.tsx] Iniciando handleRemove para ID: ${transactionId}`);
+      const successResult = await deleteTransaction(transactionId);
+      console.log(`[page.tsx] deleteTransaction retornou: ${successResult}`);
+      console.log(`[page.tsx] Estado deleteError do hook: ${deleteError}`);
+
+      if (successResult) {
         console.log(`Transação ${transactionId} removida com sucesso!`);
-        // O useEffect acima já vai chamar refetch()
       } else {
         console.error(`Falha ao remover transação ${transactionId}: ${deleteError}`);
       }
     }
   };
 
+  // Função que será passada para o TransactionForm
+  const handleCreateTransactionSubmit = async (formData: Omit<CreateTransactionDto, 'userId'>) => {
+    const transactionData: CreateTransactionDto = {
+      userId: userId, // Adiciona o userId aqui, que é global para a página
+      description: formData.description,
+      amount: formData.amount,
+      type: formData.type,
+      category: formData.category,
+      date: new Date(formData.date).toISOString(), // Converte para ISO string para o backend
+      isPaid: formData.isPaid,
+    };
+    await createTransaction(transactionData);
+  };
+
   return (
     <main className="max-w-4xl mx-auto p-4">
       <h1 className="text-2xl font-bold mb-4">Minhas Transações</h1>
 
-      <div className="flex gap-2 mb-4">
-        <input
-          type="number"
-          placeholder="Mês (1-12)"
-          className="border p-2 rounded text-black"
-          value={currentMonthInput}
-          onChange={(e) => setCurrentMonthInput(e.target.value)}
-        />
-        <input
-          type="number"
-          placeholder="Ano"
-          className="border p-2 rounded text-black"
-          value={currentYearInput}
-          onChange={(e) => setCurrentYearInput(e.target.value)}
-        />
-        <button onClick={handleFilter} className="bg-blue-600 text-white px-4 py-2 rounded">
-          Filtrar
-        </button>
-        <button
-          onClick={handleCreateDummyTransaction}
-          className="bg-green-600 text-white px-4 py-2 rounded"
-          disabled={createLoading}
-        >
-          {createLoading ? 'Criando...' : 'Criar Transação (Teste)'}
-        </button>
+      {/* Seção de Filtro */}
+      <div className="mb-6 p-4 border rounded-lg bg-gray-50 dark:bg-gray-800">
+        <h2 className="text-xl font-semibold mb-3 text-black dark:text-white">Filtrar Transações</h2>
+        <div className="flex flex-wrap gap-2 items-center">
+          <input
+            type="number"
+            placeholder="Mês (1-12)"
+            className="border p-2 rounded text-black flex-grow min-w-[100px]"
+            value={currentMonthInput}
+            onChange={(e) => setCurrentMonthInput(e.target.value)}
+          />
+          <input
+            type="number"
+            placeholder="Ano"
+            className="border p-2 rounded text-black flex-grow min-w-[100px]"
+            value={currentYearInput}
+            onChange={(e) => setCurrentYearInput(e.target.value)}
+          />
+          <button onClick={handleFilter} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded flex-shrink-0">
+            Filtrar
+          </button>
+        </div>
       </div>
 
+      {/* Seção de Criar Nova Transação (usando o componente) */}
+      <TransactionForm
+        initialData={editingTransaction || undefined} // Passa dados para edição se houver
+        onSubmit={handleCreateTransactionSubmit} // A função que lida com o envio
+        isLoading={createLoading}
+        submitError={createError}
+        submitSuccess={!!newTransactionData} // Converte para boolean
+      />
+
+      {/* Mensagens de Feedback globais */}
       {error && <p className="text-red-500">Erro ao carregar transações: {error}</p>}
-      {createError && <p className="text-red-500">Erro ao criar transação: {createError}</p>}
       {deleteError && <p className="text-red-500">Erro ao remover transação: {deleteError}</p>}
-      {newTransactionData && !createLoading && !createError && (
-        <p className="text-green-500">Transação criada com sucesso! ID: {newTransactionData.id}</p>
-      )}
       {deleteLoading && <p className="text-blue-500">Removendo transação...</p>}
 
 
+      {/* Lista de Transações */}
       {loading ? (
         <p>Carregando transações...</p>
       ) : transactions.length === 0 ? (

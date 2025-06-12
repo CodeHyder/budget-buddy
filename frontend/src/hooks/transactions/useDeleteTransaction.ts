@@ -1,32 +1,35 @@
 // frontend/src/hooks/transactions/useDeleteTransaction.ts
 import { useState } from 'react';
+import axios, { AxiosError } from 'axios';
+
+// Configurado para usar a variável de ambiente
+const API = axios.create({
+  baseURL: process.env.NEXT_PUBLIC_API_URL, // Ex: http://localhost:3000
+});
 
 export const useDeleteTransaction = () => {
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<boolean>(false);
 
-  const deleteTransaction = async (transactionId: string) => {
+  const deleteTransaction = async (transactionId: string): Promise<boolean> => {
     setLoading(true);
     setError(null);
     setSuccess(false);
 
     try {
-      const response = await fetch(`http://localhost:3000/transactions/${transactionId}`, {
-        method: 'DELETE',
-      });
-
-      if (!response.ok) {
-        // Se a resposta não for OK, tentamos ler a mensagem de erro do backend
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to delete transaction');
-      }
-
-      // No caso de sucesso, o backend de exemplo retorna void, então não esperamos JSON
+      await API.delete(`/transactions/${transactionId}`);
       setSuccess(true);
       return true;
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      const axiosError = err as AxiosError<{ message: string }>;
+
+      const message =
+        axiosError.response?.data?.message ||
+        axiosError.message ||
+        'Erro desconhecido ao deletar transação';
+
+      setError(message);
       setSuccess(false);
       return false;
     } finally {
